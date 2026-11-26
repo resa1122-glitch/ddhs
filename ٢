@@ -1,0 +1,209 @@
+--[[
+    رضاوي | Radawi Hub  v1.0
+    LocalScript -> StarterPlayer > StarterPlayerScripts
+]]
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UIS = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local HttpService = game:GetService("HttpService")
+local Workspace = game:GetService("Workspace")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+-- ====================================================================
+-- الثيم
+-- ====================================================================
+local Theme = {
+    Bg = Color3.fromRGB(14, 12, 20),
+    Panel = Color3.fromRGB(24, 20, 36),
+    Card = Color3.fromRGB(34, 28, 52),
+    Purple = Color3.fromRGB(139, 92, 246),
+    PurpleDark = Color3.fromRGB(91, 54, 180),
+    Text = Color3.fromRGB(240, 238, 250),
+    SubText = Color3.fromRGB(160, 154, 180),
+    Gray = Color3.fromRGB(70, 66, 86),
+    Green = Color3.fromRGB(74, 222, 128),
+    Red = Color3.fromRGB(239, 68, 68),
+    Font = Enum.Font.GothamMedium,
+    FontBold = Enum.Font.GothamBold,
+}
+
+local SAVE_FILE = "Radawi_Settings.json"
+local VERSION = "1.0.0"
+
+-- ====================================================================
+-- الإعدادات الافتراضية وحفظها
+-- ====================================================================
+local Defaults = {
+    FlySpeed = 60,
+    FlyMode = "Normal",
+    HoldAltitude = false,
+    WalkSpeed = 16,
+    JumpPower = 50,
+    InfiniteJump = false,
+    Noclip = false,
+    ShowCoords = true,
+    ShowFPS = true,
+    ShowSpeed = true,
+    Fullbright = false,
+    UIScale = 1,
+    UITransparency = 0.12,
+}
+
+local Settings = {}
+for k, v in pairs(Defaults) do Settings[k] = v end
+
+local function loadSettings()
+    local ok, err = pcall(function()
+        if readfile and isfile and isfile(SAVE_FILE) then
+            local data = HttpService:JSONDecode(readfile(SAVE_FILE))
+            for k, v in pairs(data) do
+                if Defaults[k] ~= nil and type(v) == type(Defaults[k]) then
+                    Settings[k] = v
+                end
+            end
+        end
+    end)
+    if not ok then warn("[Radawi] load failed:", err) end
+end
+
+local function saveSettings()
+    pcall(function()
+        if writefile then
+            writefile(SAVE_FILE, HttpService:JSONEncode(Settings))
+        end
+    end)
+end
+
+loadSettings()
+
+-- ====================================================================
+-- أدوات مساعدة
+-- ====================================================================
+local connections = {}
+local function track(conn)
+    table.insert(connections, conn)
+    return conn
+end
+
+local function tween(obj, time, props, style, dir)
+    local t = TweenService:Create(obj, TweenInfo.new(time, style or Enum.EasingStyle.Quint, dir or Enum.EasingDirection.Out), props)
+    t:Play()
+    return t
+end
+
+local function create(class, props, children)
+    local inst = Instance.new(class)
+    for k, v in pairs(props or {}) do inst[k] = v end
+    for _, c in ipairs(children or {}) do c.Parent = inst end
+    return inst
+end
+
+local function corner(r) return create("UICorner", {CornerRadius = UDim.new(0, r)}) end
+local function stroke(color, th, tr)
+    return create("UIStroke", {Color = color, Thickness = th or 1, Transparency = tr or 0.6, ApplyStrokeMode = Enum.ApplyStrokeMode.Border})
+end
+local function padding(p)
+    return create("UIPadding", {PaddingTop = UDim.new(0, p), PaddingBottom = UDim.new(0, p), PaddingLeft = UDim.new(0, p), PaddingRight = UDim.new(0, p)})
+end
+
+local function getChar()
+    local c = player.Character
+    if not c then return end
+    local hum = c:FindFirstChildOfClass("Humanoid")
+    local root = c:FindFirstChild("HumanoidRootPart")
+    if hum and root then return c, hum, root end
+end
+
+-- ====================================================================
+-- تنظيف النسخ القديمة
+-- ====================================================================
+local oldGui = playerGui:FindFirstChild("RadawiHub")
+if oldGui then oldGui:Destroy() end
+
+-- ====================================================================
+-- الواجهة الأساسية
+-- ====================================================================
+local gui = create("ScreenGui", {
+    Name = "RadawiHub",
+    ResetOnSpawn = false,
+    ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+    DisplayOrder = 999,
+    IgnoreGuiInset = true,
+})
+gui.Parent = playerGui
+
+local camera = Workspace.CurrentCamera
+local function getBaseSize()
+    local vp = camera.ViewportSize
+    local isSmall = vp.X < 700
+    local w = math.clamp(vp.X * (isSmall and 0.92 or 0.6), 320, 640)
+    local h = math.clamp(vp.Y * (isSmall and 0.78 or 0.72), 280, 440)
+    return Vector2.new(w, h)
+end
+
+local base = getBaseSize()
+local main = create("Frame", {
+    Name = "Main",
+    Size = UDim2.fromOffset(base.X, base.Y),
+    Position = UDim2.fromScale(0.5, 0.5),
+    AnchorPoint = Vector2.new(0.5, 0.5),
+    BackgroundColor3 = Theme.Bg,
+    BackgroundTransparency = Settings.UITransparency,
+    ClipsDescendants = true,
+    Active = true,
+    Parent = gui,
+}, {corner(16), stroke(Theme.Purple, 1.5, 0.5)})
+
+local uiScale = create("UIScale", {Scale = 0, Parent = main})
+
+create("UIGradient", {
+    Color = ColorSequence.new(Color3.fromRGB(30, 22, 52), Color3.fromRGB(10, 8, 16)),
+    Rotation = 135,
+    Parent = main,
+})
+
+-- ====================================================================
+-- شريط العنوان
+-- ====================================================================
+local titleBar = create("Frame", {
+    Name = "TitleBar",
+    Size = UDim2.new(1, 0, 0, 42),
+    BackgroundColor3 = Theme.Panel,
+    BackgroundTransparency = 0.35,
+    BorderSizePixel = 0,
+    Parent = main,
+})
+
+create("TextLabel", {
+    Size = UDim2.new(0, 200, 1, 0),
+    Position = UDim2.fromOffset(14, 0),
+    BackgroundTransparency = 1,
+    Text = "✦ رضاوي",
+    TextColor3 = Theme.Text,
+    Font = Theme.FontBold,
+    TextSize = 17,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    Parent = titleBar,
+})
+
+create("TextLabel", {
+    Size = UDim2.new(0, 60, 1, 0),
+    Position = UDim2.fromOffset(92, 2),
+    BackgroundTransparency = 1,
+    Text = "v" .. VERSION,
+    TextColor3 = Theme.Purple,
+    Font = Theme.Font,
+    TextSize = 11,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    Parent = titleBar,
+})
+
+local function titleButton(text, offsetFromRight, color)
+    local b = create("TextButton", {
+        Size = UDim2.fromOffset(28, 28),
+        Position = UDim2.new(1, -offsetFromRight, 0.5, 0),
+        AnchorPoint = Vector2.new(0, 0.5),
