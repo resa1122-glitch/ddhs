@@ -1,0 +1,206 @@
+-- lang: Luau, file: cuff_v2_gui.lua, target: Roblox Client (Luau Executor)
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
+local CoreGui = game:GetService("CoreGui")
+
+local LocalPlayer = Players.LocalPlayer
+local isRunning = false
+
+-- 1. تجهيز أداة الكلبشة
+local function equipCuffTool()
+    local char = LocalPlayer.Character
+    local backpack = LocalPlayer:FindFirstChild("Backpack")
+    if not char or not backpack then return nil end
+
+    local keywords = { "cuff", "handcuff", "arrest", "restrain", "zip", "كلبش" }
+    for _, container in ipairs({ char, backpack }) do
+        for _, tool in ipairs(container:GetChildren()) do
+            if tool:IsA("Tool") then
+                local name = string.lower(tool.Name)
+                for _, k in ipairs(keywords) do
+                    if string.find(name, k) then
+                        if tool.Parent == backpack then
+                            tool.Parent = char
+                            task.wait(0.1)
+                        end
+                        return tool
+                    end
+                end
+            end
+        end
+    end
+    return nil
+end
+
+-- 2. تفعيل ProximityPrompts
+local function triggerPromptsOnTarget(targetChar)
+    if not fireproximityprompt then return end
+    for _, desc in ipairs(targetChar:GetDescendants()) do
+        if desc:IsA("ProximityPrompt") then
+            pcall(function() fireproximityprompt(desc) end)
+        end
+    end
+end
+
+-- 3. جمع الأحداث
+local function collectRemotes(tool)
+    local remotes = {}
+    local keywords = { "cuff", "handcuff", "arrest", "restrain", "detain", "tie", "zip", "action", "interact" }
+    local scopes = { ReplicatedStorage, workspace }
+    if tool then table.insert(scopes, tool) end
+
+    for _, scope in ipairs(scopes) do
+        for _, obj in ipairs(scope:GetDescendants()) do
+            if obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") then
+                local lower = string.lower(obj.Name)
+                if tool and obj:IsDescendantOf(tool) then
+                    table.insert(remotes, obj)
+                else
+                    for _, k in ipairs(keywords) do
+                        if string.find(lower, k) then
+                            table.insert(remotes, obj)
+                            break
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return remotes
+end
+
+-- 4. دورة الكلبشة
+local function runCuffCycle()
+    local char = LocalPlayer.Character
+    local myHrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not myHrp then return end
+
+    local tool = equipCuffTool()
+    local remotes = collectRemotes(tool)
+
+    for _, target in ipairs(Players:GetPlayers()) do
+        if not isRunning then break end
+        if target ~= LocalPlayer and target.Character then
+            local tHrp = target.Character:FindFirstChild("HumanoidRootPart")
+            local tHum = target.Character:FindFirstChildOfClass("Humanoid")
+
+            if tHrp then
+                tHrp.CFrame = myHrp.CFrame * CFrame.new(0, 0, -2.5)
+                task.wait(0.03)
+
+                triggerPromptsOnTarget(target.Character)
+
+                for _, rem in ipairs(remotes) do
+                    if rem:IsA("RemoteEvent") then
+                        pcall(function() rem:FireServer(target) end)
+                        pcall(function() rem:FireServer(target.Character) end)
+                        pcall(function() rem:FireServer(tHrp) end)
+                        if tHum then pcall(function() rem:FireServer(tHum) end) end
+                        pcall(function() rem:FireServer("Cuff", target) end)
+                        pcall(function() rem:FireServer("Arrest", target) end)
+                    elseif rem:IsA("RemoteFunction") then
+                        task.spawn(function()
+                            pcall(function() rem:InvokeServer(target) end)
+                            pcall(function() rem:InvokeServer(target.Character) end)
+                        end)
+                    end
+                end
+
+                if tool then
+                    pcall(function() tool:Activate() end)
+                end
+            end
+        end
+    end
+end
+
+-- 5. بناء واجهة الزر القابل للسحب (GUI)
+local guiParent = (gethui and gethui()) or CoreGui
+local oldGui = guiParent:FindFirstChild("AlphaCuffUI")
+if oldGui then oldGui:Destroy() end
+
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "AlphaCuffUI"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = guiParent
+
+local toggleBtn = Instance.new("TextButton")
+toggleBtn.Name = "ToggleBtn"
+toggleBtn.Size = UDim2.new(0, 150, 0, 45)
+toggleBtn.Position = UDim2.new(0.5, -75, 0.15, 0)
+toggleBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+toggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+toggleBtn.Font = Enum.Font.GothamBold
+toggleBtn.TextSize = 15
+toggleBtn.Text = "Cuff All: OFF"
+toggleBtn.AutoButtonColor = false
+toggleBtn.Parent = screenGui
+
+local corner = Instance.new("UICorner")
+corner.CornerRadius = UDim.new(0, 8)
+corner.Parent = toggleBtn
+
+local stroke = Instance.new("UIStroke")
+stroke.Color = Color3.fromRGB(220, 60, 60)
+stroke.Thickness = 2
+stroke.Parent = toggleBtn
+
+-- دعم السحب بالماوس أو اللمس (Mobile & PC)
+local dragging, dragInput, dragStart, startPos
+toggleBtn.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        dragStart = input.Position
+        startPos = toggleBtn.Position
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+            end
+        end)
+    end
+end)
+
+toggleBtn.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+        dragInput = input
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if input == dragInput and dragging then
+        local delta = input.Position - dragStart
+        toggleBtn.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    end
+end)
+
+-- 6. تبديل التشغيل والإيقاف
+local function toggleState()
+    isRunning = not isRunning
+    if isRunning then
+        toggleBtn.Text = "Cuff All: ON"
+        toggleBtn.BackgroundColor3 = Color3.fromRGB(25, 65, 40)
+        stroke.Color = Color3.fromRGB(60, 220, 100)
+        task.spawn(function()
+            while isRunning do
+                runCuffCycle()
+                task.wait(0.4)
+            end
+        end)
+    else
+        toggleBtn.Text = "Cuff All: OFF"
+        toggleBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+        stroke.Color = Color3.fromRGB(220, 60, 60)
+    end
+end
+
+toggleBtn.MouseButton1Click:Connect(toggleState)
+
+-- اختصار الكيبورد (V) يبقى شغال ومرتبط بنفس الزر
+UserInputService.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    if input.KeyCode == Enum.KeyCode.V then
+        toggleState()
+    end
+end)
