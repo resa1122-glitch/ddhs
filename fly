@@ -1,0 +1,370 @@
+-- lang: Luau, file: Radhawi_Classic_StealthFly.lua, target: Roblox (Delta Executor)
+-- Pure ASCII source using Luau \u{XXXX} escapes for clean Arabic UI without RTL copy-paste corruption
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+
+local LocalPlayer = Players.LocalPlayer or Players.PlayerAdded:Wait()
+
+-- Arabic Title (سكربت رضاوي)
+local TXT_TITLE = "\u{0633}\u{0643}\u{0631}\u{0628}\u{062A} \u{0631}\u{0636}\u{0627}\u{0648}\u{064A}"
+
+local function randomName(len)
+    local chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+    local out = ""
+    for i = 1, len do
+        local r = math.random(1, #chars)
+        out = out .. string.sub(chars, r, r)
+    end
+    return out
+end
+
+local function getProtectedParent()
+    if typeof(gethui) == "function" then
+        local ok, res = pcall(gethui)
+        if ok and res then return res end
+    end
+    return LocalPlayer:WaitForChild("PlayerGui")
+end
+
+-- Cleanup any previous instance
+if typeof(getgenv) == "function" then
+    local env = getgenv()
+    if env.RadhawiClassicFlyCleanup then
+        pcall(env.RadhawiClassicFlyCleanup)
+    end
+end
+
+local State = {
+    Flying = false,
+    SpeedLevel = 1, -- 1 = default (30 studs/s), increases/decreases with + and -
+    UpPressed = false,
+    DownPressed = false,
+    Minimized = false
+}
+
+-- GUI Root
+local Gui = Instance.new("ScreenGui")
+Gui.Name = randomName(14)
+Gui.ResetOnSpawn = false
+Gui.IgnoreGuiInset = true
+Gui.Parent = getProtectedParent()
+
+-- Main Draggable Container (Exact 3-Row Classic Fly Layout)
+local Main = Instance.new("Frame")
+Main.Name = randomName(10)
+Main.Size = UDim2.new(0, 232, 0, 84)
+Main.Position = UDim2.new(0.25, 0, 0.35, 0)
+Main.BackgroundTransparency = 1
+Main.Active = true
+Main.Draggable = true
+Main.Parent = Gui
+
+local function createGridCell(name, size, pos, bgColor, text, textColor, textSize)
+    local cell = Instance.new("TextButton")
+    cell.Name = name
+    cell.Size = size
+    cell.Position = pos
+    cell.BackgroundColor3 = bgColor
+    cell.BorderColor3 = Color3.fromRGB(25, 25, 25)
+    cell.BorderSizePixel = 1
+    cell.Text = text
+    cell.TextColor3 = textColor or Color3.new(0, 0, 0)
+    cell.Font = Enum.Font.SourceSansBold
+    cell.TextSize = textSize or 18
+    cell.AutoButtonColor = true
+    cell.Parent = Main
+    return cell
+end
+
+-- === ROW 1 (Top: X and -) ===
+-- Red X (Unload & Close)
+local CloseBtn = createGridCell(
+    "CloseBtn",
+    UDim2.new(0, 54, 0, 28),
+    UDim2.new(0, 0, 0, 0),
+    Color3.fromRGB(215, 35, 15),
+    "X",
+    Color3.fromRGB(30, 0, 0),
+    22
+)
+
+-- Light Purple - (Minimize / Restore Bar)
+local MinBtn = createGridCell(
+    "MinBtn",
+    UDim2.new(0, 54, 0, 28),
+    UDim2.new(0, 54, 0, 0),
+    Color3.fromRGB(190, 150, 225),
+    "-",
+    Color3.new(0, 0, 0),
+    24
+)
+
+-- === ROW 2 (Middle: UP, +, Title) ===
+-- Mint Green UP
+local UpBtn = createGridCell(
+    "UpBtn",
+    UDim2.new(0, 54, 0, 28),
+    UDim2.new(0, 0, 0, 28),
+    Color3.fromRGB(85, 245, 145),
+    "UP",
+    Color3.new(0, 0, 0),
+    15
+)
+
+-- Periwinkle Blue + (Increase Speed)
+local PlusBtn = createGridCell(
+    "PlusBtn",
+    UDim2.new(0, 54, 0, 28),
+    UDim2.new(0, 54, 0, 28),
+    Color3.fromRGB(130, 155, 245),
+    "+",
+    Color3.new(0, 0, 0),
+    22
+)
+
+-- Magenta Title Label (سكربت رضاوي)
+local TitleLbl = Instance.new("TextLabel")
+TitleLbl.Name = "TitleLbl"
+TitleLbl.Size = UDim2.new(0, 124, 0, 28)
+TitleLbl.Position = UDim2.new(0, 108, 0, 28)
+TitleLbl.BackgroundColor3 = Color3.fromRGB(225, 85, 240)
+TitleLbl.BorderColor3 = Color3.fromRGB(25, 25, 25)
+TitleLbl.BorderSizePixel = 1
+TitleLbl.Text = TXT_TITLE
+TitleLbl.TextColor3 = Color3.new(0, 0, 0)
+TitleLbl.Font = Enum.Font.SourceSansBold
+TitleLbl.TextSize = 18
+TitleLbl.Parent = Main
+
+-- === ROW 3 (Bottom: DOWN, -, Speed Number, fly) ===
+-- Lime Yellow DOWN
+local DownBtn = createGridCell(
+    "DownBtn",
+    UDim2.new(0, 54, 0, 28),
+    UDim2.new(0, 0, 0, 56),
+    Color3.fromRGB(205, 250, 125),
+    "DOWN",
+    Color3.new(0, 0, 0),
+    14
+)
+
+-- Cyan - (Decrease Speed)
+local MinusBtn = createGridCell(
+    "MinusBtn",
+    UDim2.new(0, 54, 0, 28),
+    UDim2.new(0, 54, 0, 56),
+    Color3.fromRGB(130, 250, 250),
+    "-",
+    Color3.new(0, 0, 0),
+    24
+)
+
+-- Orange Speed Counter (1, 2, 3...)
+local SpeedDisplay = Instance.new("TextLabel")
+SpeedDisplay.Name = "SpeedDisplay"
+SpeedDisplay.Size = UDim2.new(0, 54, 0, 28)
+SpeedDisplay.Position = UDim2.new(0, 108, 0, 56)
+SpeedDisplay.BackgroundColor3 = Color3.fromRGB(245, 95, 15)
+SpeedDisplay.BorderColor3 = Color3.fromRGB(25, 25, 25)
+SpeedDisplay.BorderSizePixel = 1
+SpeedDisplay.Text = tostring(State.SpeedLevel)
+SpeedDisplay.TextColor3 = Color3.new(0, 0, 0)
+SpeedDisplay.Font = Enum.Font.SourceSansBold
+SpeedDisplay.TextSize = 20
+SpeedDisplay.Parent = Main
+
+-- Bright Yellow fly Toggle
+local FlyBtn = createGridCell(
+    "FlyBtn",
+    UDim2.new(0, 70, 0, 28),
+    UDim2.new(0, 162, 0, 56),
+    Color3.fromRGB(255, 245, 75),
+    "fly",
+    Color3.new(0, 0, 0),
+    17
+)
+
+-- === BUTTON INTERACTIONS ===
+-- Minimize / Restore Logic (- becomes + when minimized, hides rows 2 & 3)
+MinBtn.MouseButton1Click:Connect(function()
+    State.Minimized = not State.Minimized
+    local show = not State.Minimized
+    UpBtn.Visible = show
+    PlusBtn.Visible = show
+    TitleLbl.Visible = show
+    DownBtn.Visible = show
+    MinusBtn.Visible = show
+    SpeedDisplay.Visible = show
+    FlyBtn.Visible = show
+    MinBtn.Text = State.Minimized and "+" or "-"
+    Main.Size = State.Minimized and UDim2.new(0, 108, 0, 28) or UDim2.new(0, 232, 0, 84)
+end)
+
+-- Speed + / -
+PlusBtn.MouseButton1Click:Connect(function()
+    State.SpeedLevel = math.clamp(State.SpeedLevel + 1, 1, 25)
+    SpeedDisplay.Text = tostring(State.SpeedLevel)
+end)
+
+MinusBtn.MouseButton1Click:Connect(function()
+    State.SpeedLevel = math.clamp(State.SpeedLevel - 1, 1, 25)
+    SpeedDisplay.Text = tostring(State.SpeedLevel)
+end)
+
+-- UP / DOWN Hold Controls
+UpBtn.MouseButton1Down:Connect(function() State.UpPressed = true end)
+UpBtn.MouseButton1Up:Connect(function() State.UpPressed = false end)
+UpBtn.MouseLeave:Connect(function() State.UpPressed = false end)
+
+DownBtn.MouseButton1Down:Connect(function() State.DownPressed = true end)
+DownBtn.MouseButton1Up:Connect(function() State.DownPressed = false end)
+DownBtn.MouseLeave:Connect(function() State.DownPressed = false end)
+
+-- === STEALTH ANTI-CHEAT FLIGHT ENGINE ===
+local att, linVel, alignOri
+
+local function clearPhysics()
+    if linVel then linVel:Destroy() linVel = nil end
+    if alignOri then alignOri:Destroy() alignOri = nil end
+    if att then att:Destroy() att = nil end
+    local char = LocalPlayer.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if hum then
+        hum.PlatformStand = false
+        hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+    end
+end
+
+local function setupPhysics()
+    clearPhysics()
+    local char = LocalPlayer.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if not root or not hum then return end
+
+    hum.PlatformStand = true
+
+    -- Parent constraints inside CurrentCamera so Character/Workspace anti-cheat scans miss them
+    att = Instance.new("Attachment")
+    att.Name = randomName(10)
+    att.Parent = root
+
+    linVel = Instance.new("LinearVelocity")
+    linVel.Name = randomName(10)
+    linVel.Attachment0 = att
+    linVel.MaxForce = math.huge
+    linVel.VectorVelocity = Vector3.zero
+    linVel.RelativeTo = Enum.ActuatorRelativeTo.World
+    linVel.Parent = Workspace.CurrentCamera
+
+    alignOri = Instance.new("AlignOrientation")
+    alignOri.Name = randomName(10)
+    alignOri.Attachment0 = att
+    alignOri.Mode = Enum.OrientationAlignmentMode.OneAttachment
+    alignOri.MaxTorque = math.huge
+    alignOri.Responsiveness = 45
+    alignOri.CFrame = root.CFrame
+    alignOri.Parent = Workspace.CurrentCamera
+end
+
+FlyBtn.MouseButton1Click:Connect(function()
+    State.Flying = not State.Flying
+    FlyBtn.BackgroundColor3 = State.Flying and Color3.fromRGB(0, 230, 120) or Color3.fromRGB(255, 245, 75)
+    FlyBtn.Text = State.Flying and "ON" or "fly"
+    if State.Flying then
+        setupPhysics()
+    else
+        clearPhysics()
+    end
+end)
+
+local charConn = LocalPlayer.CharacterAdded:Connect(function(char)
+    if State.Flying then
+        char:WaitForChild("HumanoidRootPart", 5)
+        task.wait(0.15)
+        setupPhysics()
+    end
+end)
+
+-- Physics Heartbeat Loop
+local currentVel = Vector3.zero
+local tAccum = 0
+
+local hbConn = RunService.Heartbeat:Connect(function(dt)
+    if not State.Flying then return end
+
+    local char = LocalPlayer.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if not root or not hum then return end
+
+    if not linVel or not alignOri or not att or att.Parent ~= root then
+        setupPhysics()
+        return
+    end
+
+    tAccum = tAccum + dt
+    local cam = Workspace.CurrentCamera
+    alignOri.CFrame = cam.CFrame
+
+    -- Spoof Humanoid state to Running to bypass Freefall anti-cheat triggers
+    if hum:GetState() == Enum.HumanoidStateType.Freefall then
+        hum:ChangeState(Enum.HumanoidStateType.Running)
+    end
+
+    -- Speed formula: Level 1 = 30 studs/s, each +1 adds 18 studs/s
+    local actualSpeed = 12 + (State.SpeedLevel * 18)
+
+    -- Subtle hover oscillation to prevent zero-velocity air-freeze detection
+    local hoverBias = Vector3.new(0, math.sin(tAccum * 6) * 0.12, 0)
+    local moveVec = Vector3.zero
+
+    if hum.MoveDirection.Magnitude > 0 then
+        local look = cam.CFrame.LookVector
+        local right = cam.CFrame.RightVector
+        local flatLook = Vector3.new(look.X, 0, look.Z)
+        local flatRight = Vector3.new(right.X, 0, right.Z)
+
+        if flatLook.Magnitude > 0.001 then flatLook = flatLook.Unit end
+        if flatRight.Magnitude > 0.001 then flatRight = flatRight.Unit end
+
+        local forwardAmt = hum.MoveDirection:Dot(flatLook)
+        local rightAmt = hum.MoveDirection:Dot(flatRight)
+        moveVec = moveVec + (look * forwardAmt + right * rightAmt)
+    end
+
+    -- Vertical UP / DOWN button support
+    if State.UpPressed then
+        moveVec = moveVec + Vector3.new(0, 1, 0)
+    end
+    if State.DownPressed then
+        moveVec = moveVec - Vector3.new(0, 1, 0)
+    end
+
+    local targetVel = hoverBias
+    if moveVec.Magnitude > 0.001 then
+        targetVel = moveVec.Unit * actualSpeed
+    end
+
+    -- Smooth velocity interpolation (prevents sudden spike detection)
+    local alpha = math.clamp(dt * 12, 0, 1)
+    currentVel = currentVel:Lerp(targetVel, alpha)
+    linVel.VectorVelocity = currentVel
+end)
+
+-- Full Cleanup on Red X Click
+local function fullUnload()
+    State.Flying = false
+    if hbConn then hbConn:Disconnect() end
+    if charConn then charConn:Disconnect() end
+    clearPhysics()
+    if Gui then Gui:Destroy() end
+end
+
+if typeof(getgenv) == "function" then
+    getgenv().RadhawiClassicFlyCleanup = fullUnload
+end
+
+CloseBtn.MouseButton1Click:Connect(fullUnload)
